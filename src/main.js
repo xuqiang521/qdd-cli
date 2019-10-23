@@ -7,15 +7,15 @@ const mapActions = {
     alias: 'c',
     description: 'create a project',
     examples: [
-      'fe-cli create <project-name>'
+      'qdd-cli create <project-name>'
     ]
   },
   config: {
     alias: 'conf',
     description: 'config project variable',
     examples: [
-      'fe-cli config set <key><value>',
-      'fe-cli config get <key>'
+      'qdd-cli config set <key><value>',
+      'qdd-cli config get <key>'
     ]
   },
   '*': {

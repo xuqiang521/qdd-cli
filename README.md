@@ -1,2 +1,2 @@
-# fe-cli
+# qdd-cli
 Vue Simple CLI

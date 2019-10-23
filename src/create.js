@@ -1,47 +1,33 @@
 const path = require('path')
 const fs = require('fs')
-const axios = require('axios')
-const ora = require('ora')
 const inquirer = require('inquirer')
 const Metalsmith = require('metalsmith')
-// const chalk = require('chalk')
-const { __DOWNLOAD_DIR__, __ORG__ } = require('./constants')
+const rm = require('rimraf').sync
+const chalk = require('chalk')
+const { __DOWNLOAD_DIR__, __META__ } = require('./constants')
+const {
+  fetchRepoList,
+  fetchTagList,
+  fetchBranchList,
+  downloadAndGenerate,
+  loading,
+  setDefault,
+  getGitUser
+} = require('./utils')
 const { promisify } = require('util')
 
-let download = require('download-git-repo')
-download = promisify(download)
-let ncp = require('ncp')
-ncp = promisify(ncp)
-let { render } = require('consolidate').ejs // consolidate 处理模板引擎
+let { render } = require('consolidate').handlebars // consolidate 处理模板引擎
 render = promisify(render)
 
-const fetchRepoList = async () => {
-  const { data } = await axios.get(`https://api.github.com/orgs/${__ORG__}/repos`)
-  return data
-}
-
-const fetchTagList = async (repo) => {
-  const { data } = await axios.get(`https://api.github.com/repos/${__ORG__}/${repo}/tags`)
-  return data
-}
-
-const downloadAndGenerate = async (repo, tag) => {
-  let api = `${__ORG__}/${repo}`
-  if (tag) {
-    api += `#${tag}`
-  }
-  const dest = `${__DOWNLOAD_DIR__}/${repo}`
-  await download(api, dest)
-  return dest
-}
-
-// loading
-const loading = (fn, message) => async (...args) => {
-  const spinner = ora(message)
-  spinner.start()
-  const result = await fn(...args)
-  spinner.succeed()
-  return result
+function logMessage (message, data) {
+  if (!message) return
+  render(message, data, (err, res) => {
+    if (err) {
+      console.error('\n   Error when rendering template complete message: ' + err.message.trim())
+    } else {
+      console.log('\n' + res.split(/\r?\n/g).map(line => '   ' + line).join('\n'))
+    }
+  })
 }
 
 module.exports = async (projectName) => {
@@ -51,59 +37,75 @@ module.exports = async (projectName) => {
     name: 'repo',
     type: 'list',
     message: 'please choose a template to create project',
-    choices: repos
+    choices: repos,
+    default: 'vue-template'
   })
 
   let tags = await loading(fetchTagList, 'fetch tags ...')(repo)
   tags = tags.map(item => item.name)
-  const { tag } = await inquirer.prompt({
-    name: 'tag',
+  let branches = await loading(fetchBranchList, 'fetch branches ...')(repo)
+  branches = branches.map(item => item.name)
+  const { tagOrBranch } = await inquirer.prompt({
+    name: 'tagOrBranch',
     type: 'list',
     message: 'please choose a tag to create project',
-    choices: tags
+    choices: [...tags, ...branches]
   })
 
-  const result = await loading(downloadAndGenerate, 'download and generate ...')(repo, tag)
+  if (fs.existsSync(path.join(__DOWNLOAD_DIR__))) rm(__DOWNLOAD_DIR__)
 
-  // simple template
-  if (!fs.existsSync(path.join(result, 'ask.js'))) {
-    await ncp(result, path.resolve(projectName))
-  // difficult template
-  } else {
-    await new Promise((resolve, reject) => {
-      Metalsmith(__dirname)
-        .source(result)
-        .destination(path.resolve(projectName))
-        .use(async (files, metal, done) => {
-          const args = require(path.join(result, 'ask.js'))
-          const _result = await inquirer.prompt(args)
-          const meta = metal.metadata()
-          Object.assign(meta, _result)
-          delete files['ask.js']
-          done()
+  const result = await loading(downloadAndGenerate, 'download and generate ...')(repo, tagOrBranch)
+  const opts = require(path.join(result, __META__))
+  const metalsmith = Metalsmith(__dirname)
+  const data = Object.assign(metalsmith.metadata(), {
+    destDirName: projectName
+  })
+
+  await new Promise((resolve, reject) => {
+    metalsmith
+      .source(path.join(result, 'template'))
+      .destination(path.resolve(projectName))
+      .use(async (files, metal, done) => {
+        const prompts = opts.prompts
+        const args = []
+        const author = getGitUser()
+        Reflect.ownKeys(prompts).forEach(key => {
+          prompts[key].name = key
+          setDefault(prompts, 'name', projectName)
+          setDefault(prompts, 'author', author)
+          args.push(prompts[key])
         })
-        .use((files, metal, done) => {
-          const _result = metal.metadata()
-          Reflect.ownKeys(files).forEach(async (file) => {
-            if (file.includes('js') || file.includes('json')) {
-              let content = files[file].contents.toString()
-              if (content.includes('<%')) {
-                content = await render(content, _result)
-                files[file].contents = Buffer.from(content)
-              }
-            }
-          })
-          console.log(_result)
-          done()
-        })
-        .build((err) => {
-          if (err) {
-            reject(err)
-          } else {
-            resolve()
+        const _result = await inquirer.prompt(args)
+        // const meta = metal.metadata()
+        Object.assign(data, _result)
+        done()
+      })
+      .use((files, metal, done) => {
+        Reflect.ownKeys(files).forEach(async (file) => {
+          let content = files[file].contents.toString()
+          if (/{{([^{}]+)}}/g.test(content)) {
+            content = await render(content, data)
+            files[file].contents = Buffer.from(content)
           }
         })
-    })
-  }
-  process.exit()
+        done()
+      })
+      .build((err, files) => {
+        if (err) {
+          reject(err)
+        } else {
+          if (typeof opts.complete === 'function') {
+            const helpers = { chalk, files }
+            opts.complete(data, helpers)
+          } else {
+            logMessage(opts.completeMessage, data)
+          }
+          resolve()
+        }
+      })
+  })
+  console.log()
+  process.on('exit', () => {
+    console.log()
+  })
 }
