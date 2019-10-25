@@ -16,7 +16,8 @@ exports.fetchRepoList = async () => {
 }
 
 exports.fetchTagList = async (repo) => {
-  const { data } = await axios.get(`https://api.github.com/repos/${__ORG__}/${repo}/tags`)
+  // const { data } = await axios.get(`https://api.github.com/repos/${__ORG__}/${repo}/tags`)
+  const { data } = await axios.get(`https://api.github.com/repos/${__ORG__}/vue-template/tags`)
   return data
 }
 

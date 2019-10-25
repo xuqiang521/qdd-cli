@@ -4,9 +4,12 @@ const inquirer = require('inquirer')
 const Metalsmith = require('metalsmith')
 const rm = require('rimraf').sync
 const chalk = require('chalk')
-const { __DOWNLOAD_DIR__, __META__ } = require('./constants')
 const {
-  fetchRepoList,
+  __DOWNLOAD_DIR__,
+  __REPO__,
+  __META__
+} = require('./constants')
+const {
   fetchTagList,
   fetchBranchList,
   downloadAndGenerate,
@@ -31,30 +34,30 @@ function logMessage (message, data) {
 }
 
 module.exports = async (projectName) => {
-  let repos = await loading(fetchRepoList, 'download template ...')()
-  repos = repos.map(item => item.name)
-  const { repo } = await inquirer.prompt({
-    name: 'repo',
-    type: 'list',
-    message: 'please choose a template to create project',
-    choices: repos,
-    default: 'vue-template'
-  })
+  // let repos = await loading(fetchRepoList, 'download template ...')()
+  // repos = repos.map(item => item.name)
+  // const { repo } = await inquirer.prompt({
+  //   name: 'repo',
+  //   type: 'list',
+  //   message: 'please choose a template to create project',
+  //   choices: repos,
+  //   default: 'vue-template'
+  // })
 
-  let tags = await loading(fetchTagList, 'fetch tags ...')(repo)
+  let tags = await loading(fetchTagList, 'fetch tags ...')(__REPO__)
   tags = tags.map(item => item.name)
-  let branches = await loading(fetchBranchList, 'fetch branches ...')(repo)
+  let branches = await loading(fetchBranchList, 'fetch branches ...')(__REPO__)
   branches = branches.map(item => item.name)
   const { tagOrBranch } = await inquirer.prompt({
     name: 'tagOrBranch',
     type: 'list',
-    message: 'please choose a tag to create project',
+    message: 'please choose a tag or branch to create project',
     choices: [...tags, ...branches]
   })
 
   if (fs.existsSync(path.join(__DOWNLOAD_DIR__))) rm(__DOWNLOAD_DIR__)
 
-  const result = await loading(downloadAndGenerate, 'download and generate ...')(repo, tagOrBranch)
+  const result = await loading(downloadAndGenerate, 'download and generate ...')(__REPO__, tagOrBranch)
   const opts = require(path.join(result, __META__))
   const metalsmith = Metalsmith(__dirname)
   const data = Object.assign(metalsmith.metadata(), {
